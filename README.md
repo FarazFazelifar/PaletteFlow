@@ -31,7 +31,6 @@ pip install -e .
 
 - **User Themes** GNOME extension — required for GNOME Shell theming.  
   [Install from extensions.gnome.org](https://extensions.gnome.org/extension/19/user-themes/)  
-  (Pre-installed on Ubuntu — enable it in Extensions or GNOME Settings.)
 
 ## Usage
 
