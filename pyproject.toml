@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "paletteflow"
+version = "0.1.0"
+description = "Extract colors from your wallpaper and apply them across your Linux desktop tools"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+dependencies = [
+    "colorthief",
+    "tomlkit",
+]
+
+[project.scripts]
+paletteflow = "paletteflow.cli:main"
+paletteflow-watch = "paletteflow.watcher:main"
+
+[tool.setuptools.packages.find]
+include = ["paletteflow*"]
