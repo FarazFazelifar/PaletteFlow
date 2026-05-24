@@ -1,0 +1,12 @@
+[package]
+name = "extractor"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "paletteflow-extract"
+path = "src/main.rs"
+
+[dependencies]
+color-thief = "0.2"
+image = "0.25"

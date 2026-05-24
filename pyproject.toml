@@ -20,3 +20,6 @@ paletteflow-watch = "paletteflow.watcher:main"
 
 [tool.setuptools.packages.find]
 include = ["paletteflow*"]
+
+[tool.setuptools.package_data]
+paletteflow = ["watcher.sh"]

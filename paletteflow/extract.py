@@ -3,11 +3,67 @@ import os
 import argparse
 import subprocess
 import urllib.parse
-from colorthief import ColorThief
 
 
-def rgb_to_hex(rgb):
-    return "#{:02x}{:02x}{:02x}".format(rgb[0], rgb[1], rgb[2]).upper()
+DEFAULT_NUM_COLORS = 6
+
+
+def _find_extractor():
+    bin_name = "paletteflow-extract"
+    ext = ".exe" if sys.platform == "win32" else ""
+
+    env = os.environ.get("PALETTEFLOW_EXTRACTOR")
+    if env and os.path.isfile(env):
+        return env
+
+    dev = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "extractor", "target", "release", bin_name + ext,
+    )
+    if os.path.isfile(dev):
+        return dev
+
+    sibling = os.path.join(os.path.dirname(sys.executable), bin_name + ext)
+    if os.path.isfile(sibling):
+        return sibling
+
+    for d in os.environ.get("PATH", "").split(os.pathsep):
+        candidate = os.path.join(d, bin_name + ext)
+        if os.path.isfile(candidate):
+            return candidate
+
+    return None
+
+
+def _extract_rust(image, num_colors):
+    exe = _find_extractor()
+    if not exe:
+        return None
+    try:
+        result = subprocess.run(
+            [exe, image, str(num_colors)],
+            capture_output=True, text=True, check=True, timeout=30,
+        )
+        colors = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        if len(colors) >= num_colors:
+            return colors[:num_colors]
+    except (subprocess.CalledProcessError, FileNotFoundError, TimeoutError):
+        pass
+    return None
+
+
+def _extract_python(image, num_colors):
+    from colorthief import ColorThief
+
+    thief = ColorThief(image)
+    primary = list(thief.get_color(quality=1))
+    palette = thief.get_palette(color_count=num_colors + 2, quality=1)
+
+    colors_rgb = [primary]
+    for i in range(1, num_colors):
+        colors_rgb.append(list(palette[i]) if len(palette) > i else primary)
+
+    return [f"#{r:02X}{g:02X}{b:02X}" for r, g, b in colors_rgb]
 
 
 def get_gnome_wallpaper():
@@ -28,7 +84,10 @@ def get_gnome_wallpaper():
     return None
 
 
-def run(image=None):
+def run(image=None, num_colors=None):
+    if num_colors is None:
+        num_colors = DEFAULT_NUM_COLORS
+
     if not image:
         print("No image path provided. Detecting current GNOME background...")
         image = get_gnome_wallpaper()
@@ -36,27 +95,14 @@ def run(image=None):
             print("Failed to detect background.", file=sys.stderr)
             sys.exit(1)
 
-    color_thief = ColorThief(image)
-    primary_rgb = color_thief.get_color(quality=1)
-    palette = color_thief.get_palette(color_count=8, quality=1)
+    hex_colors = _extract_rust(image, num_colors)
+    if hex_colors is None:
+        hex_colors = _extract_python(image, num_colors)
 
-    colors_rgb = [
-        primary_rgb,
-        palette[1] if len(palette) > 1 else primary_rgb,
-        palette[2] if len(palette) > 2 else primary_rgb,
-        palette[3] if len(palette) > 3 else primary_rgb,
-        palette[4] if len(palette) > 4 else primary_rgb,
-        palette[5] if len(palette) > 5 else primary_rgb,
-    ]
-
-    color_names = ["Primary", "Secondary", "Accent", "Tertiary", "Quaternary", "Quinary"]
     print(f"--- Color Palette for {image} ---")
-
-    hex_colors = []
-    for i, rgb in enumerate(colors_rgb):
-        hex_val = rgb_to_hex(rgb)
-        hex_colors.append(hex_val)
-        print(f"\n{i+1}. {color_names[i]} Color:  {hex_val}")
+    for i, hex_val in enumerate(hex_colors):
+        label = "Accent" if i == 2 else f"Color {i+1}"
+        print(f"  {label}: {hex_val}")
 
     palette_file = os.path.expanduser("~/.cache/paletteflow.txt")
     os.makedirs(os.path.dirname(palette_file), exist_ok=True)
@@ -69,14 +115,19 @@ def run(image=None):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Extract a 6-color palette from an image (or current GNOME wallpaper)."
+        description="Extract a color palette from an image (or current GNOME wallpaper)."
     )
     parser.add_argument(
         "image", nargs="?", default=None,
         help="Path to image. If omitted, uses current GNOME wallpaper.",
     )
+    parser.add_argument(
+        "-n", "--num-colors", type=int, default=DEFAULT_NUM_COLORS,
+        choices=range(4, 13), metavar="[4-12]",
+        help="Number of colors to extract (default: 6)",
+    )
     args = parser.parse_args()
-    run(args.image)
+    run(args.image, num_colors=args.num_colors)
 
 
 if __name__ == "__main__":

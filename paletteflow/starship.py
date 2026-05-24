@@ -8,6 +8,12 @@ PALETTE_FILE = os.path.expanduser("~/.cache/paletteflow.txt")
 PALETTE_NAME = "auto_theme"
 
 
+def _brightness(hex_color):
+    hex_color = hex_color.lstrip("#")
+    r, g, b = tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
+    return (r * 299 + g * 587 + b * 114) / 1000
+
+
 def _resolve_colors(cli_colors):
     if cli_colors and len(cli_colors) >= 6:
         return cli_colors[:6]
@@ -23,7 +29,7 @@ def _resolve_colors(cli_colors):
 
 
 def run(colors=None):
-    primary, secondary, accent, tertiary, quaternary, quinary = _resolve_colors(colors)
+    extracted = _resolve_colors(colors)
 
     if not os.path.exists(STARSHIP_CONFIG):
         print(f"Error: Starship config not found at {STARSHIP_CONFIG}", file=sys.stderr)
@@ -37,12 +43,16 @@ def run(colors=None):
     if PALETTE_NAME not in doc["palettes"]:
         doc["palettes"][PALETTE_NAME] = tomlkit.table()
 
-    doc["palettes"][PALETTE_NAME]["primary"] = primary
-    doc["palettes"][PALETTE_NAME]["secondary"] = secondary
-    doc["palettes"][PALETTE_NAME]["accent"] = accent
-    doc["palettes"][PALETTE_NAME]["tertiary"] = tertiary
-    doc["palettes"][PALETTE_NAME]["quaternary"] = quaternary
-    doc["palettes"][PALETTE_NAME]["quinary"] = quinary
+    # Ghostty uses extracted[0] (primary) as terminal background.
+    # Starship must not re-use that same color — it would merge.
+    # Use the remaining 5 colors, sorted by brightness descending,
+    # so the brightest lands on "primary" (commonly used for text).
+    pool = sorted(extracted[1:], key=_brightness, reverse=True)
+    pool.append(pool[-1])
+
+    names = ["primary", "secondary", "accent", "tertiary", "quaternary", "quinary"]
+    for name, val in zip(names, pool):
+        doc["palettes"][PALETTE_NAME][name] = val
 
     with open(STARSHIP_CONFIG, "w") as f:
         f.write(tomlkit.dumps(doc))
@@ -50,7 +60,7 @@ def run(colors=None):
     print(f"Updated starship palette '{PALETTE_NAME}'")
     for name, val in zip(
         ["Primary", "Secondary", "Accent", "Tertiary", "Quaternary", "Quinary"],
-        [primary, secondary, accent, tertiary, quaternary, quinary],
+        pool,
     ):
         print(f"  {name}: {val}")
 
@@ -61,7 +71,7 @@ def main():
     )
     parser.add_argument(
         "colors", nargs="*", default=None,
-        help="Six hex colors. Reads from cache if omitted.",
+        help="Hex colors from palette. Reads from cache if omitted.",
     )
     args = parser.parse_args()
     run(args.colors)

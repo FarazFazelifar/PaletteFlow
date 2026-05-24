@@ -84,7 +84,7 @@ def main():
     )
     parser.add_argument(
         "colors", nargs="*", default=None,
-        help="Six hex colors. Reads from cache if omitted.",
+        help="Hex colors from palette. Reads from cache if omitted.",
     )
     args = parser.parse_args()
     run(args.colors)

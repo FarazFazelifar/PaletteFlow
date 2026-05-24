@@ -14,9 +14,25 @@ def hex_to_ansi(hex_color):
 
 
 def strip_jsonc_comments(text):
-    text = re.sub(r"//.*", "", text)
-    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
-    return text
+    result = []
+    in_string = False
+    i = 0
+    while i < len(text):
+        if text[i] == '"' and (i == 0 or text[i - 1] != "\\"):
+            in_string = not in_string
+        elif text[i : i + 2] == "//" and not in_string:
+            while i < len(text) and text[i] != "\n":
+                i += 1
+            continue
+        elif text[i : i + 2] == "/*" and not in_string:
+            i += 2
+            while i < len(text) and text[i : i + 2] != "*/":
+                i += 1
+            i += 2
+            continue
+        result.append(text[i])
+        i += 1
+    return "".join(result)
 
 
 def _resolve_colors(cli_colors):
@@ -49,7 +65,7 @@ def run(colors=None):
     if config_path.endswith(".jsonc"):
         raw = strip_jsonc_comments(raw)
 
-    config = json.loads(raw)
+    config = json.loads(raw, strict=False)
 
     if "display" not in config:
         config["display"] = {}

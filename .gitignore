@@ -7,3 +7,5 @@ paletteflow.egg-info/
 *.egg-info/
 dist/
 build/
+ROADMAP.md
+extractor/target/
