@@ -79,7 +79,7 @@ def _extract(image, num_colors):
         sys.exit(1)
 
 
-def _get_gnome_wallpaper():
+def get_gnome_wallpaper():
     for key in ["picture-uri-dark", "picture-uri"]:
         try:
             result = subprocess.run(
@@ -168,7 +168,7 @@ def run(image=None, num_colors=None):
 
     if not image:
         print("No image path provided. Detecting current GNOME background...")
-        image = _get_gnome_wallpaper()
+        image = get_gnome_wallpaper()
         if not image:
             print("Failed to detect background.", file=sys.stderr)
             sys.exit(1)

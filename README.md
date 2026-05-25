@@ -9,11 +9,7 @@ Your wallpaper's colors, flowing across your entire desktop.
 <table>
   <tr>
     <td><img src="screenshot-1.png" width="400" alt="Starship prompt with wallpaper-derived colors"></td>
-    <td><img src="screenshot-2.png" width="400" alt="GNOME Shell with themed accents and surfaces"></td>
-  </tr>
-  <tr>
-    <td><img src="screenshot-3.png" width="400" alt="Ghostty terminal with extracted palette"></td>
-    <td><img src="screenshot-4.png" width="400" alt="Fastfetch and Cava showing palette colors"></td>
+    <td><img src="screenshot-3.png" width="400" alt="GNOME Shell and Ghostty with themed colors"></td>
   </tr>
 </table>
 

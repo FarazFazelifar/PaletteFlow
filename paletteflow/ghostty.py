@@ -11,6 +11,7 @@ from paletteflow.color_utils import (
     hsl_to_rgb,
     contrast_ratio,
     ensure_contrast,
+    ensure_contrast_multi,
     is_dark,
     ROLES,
 )
