@@ -19,9 +19,9 @@ def make_parser():
         help="Path to image. If omitted, uses current GNOME wallpaper.",
     )
     p_extract.add_argument(
-        "-n", "--num-colors", type=int, default=6,
+        "-n", "--num-colors", type=int, default=8,
         choices=range(4, 13), metavar="[4-12]",
-        help="Number of colors to extract (default: 6)",
+        help="Number of colors to extract (default: 8)",
     )
 
     p_starship = sub.add_parser("starship", help="Update starship prompt palette")
@@ -60,9 +60,9 @@ def make_parser():
 
     p_apply = sub.add_parser("apply", help="Run full pipeline (extract + all targets)")
     p_apply.add_argument(
-        "-n", "--num-colors", type=int, default=6,
+        "-n", "--num-colors", type=int, default=8,
         choices=range(4, 13), metavar="[4-12]",
-        help="Number of colors to extract (default: 6)",
+        help="Number of colors to extract (default: 8)",
     )
 
     p_service = sub.add_parser("service", help="Manage the paletteflow-watch systemd service")

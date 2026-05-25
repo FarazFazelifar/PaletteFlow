@@ -4,79 +4,87 @@ import time
 import re
 import subprocess
 import tempfile
-from collections import Counter
+import json
+
+from paletteflow.color_utils import (
+    get_brightness,
+    contrast_ratio,
+    ensure_contrast,
+    ensure_contrast_multi,
+    blend,
+    is_dark,
+    ROLES,
+)
 
 
 THEME_DIR = os.path.expanduser("~/.local/share/themes/paletteflow/gnome-shell")
 CSS_PATH = os.path.join(THEME_DIR, "gnome-shell.css")
 PALETTE_FILE = os.path.expanduser("~/.cache/paletteflow.txt")
-YARU_BASE = "/usr/share/gnome-shell/theme/Yaru/gnome-shell.css"
+PALETTE_JSON = os.path.expanduser("~/.cache/paletteflow.json")
 YARU_DARK_BASE = "/usr/share/gnome-shell/theme/Yaru-dark/gnome-shell.css"
+YARU_BASE = "/usr/share/gnome-shell/theme/Yaru/gnome-shell.css"
 
 
-def get_brightness(hex_color):
-    hex_color = hex_color.lstrip("#")
-    r, g, b = tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
-    return (r * 299 + g * 587 + b * 114) / 1000
+CSS_COLOR_RE = re.compile(
+    r"([a-zA-Z-]+)\s*:\s*(#[0-9A-Fa-f]{6})",
+)
 
 
-def _saturation(hex_color):
-    hex_color = hex_color.lstrip("#")
-    r, g, b = tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
-    mx, mn = max(r, g, b), min(r, g, b)
-    return (mx - mn) / mx if mx else 0
-
-
-def get_contrasting_text_color(hex_color):
-    return "#000000" if get_brightness(hex_color) > 128 else "#ffffff"
-
-
-def _pick_accent(colors):
-    scored = [(c, get_brightness(c), _saturation(c)) for c in colors]
-    candidates = [(c, b, s) for (c, b, s) in scored if 40 <= b <= 200]
-    if not candidates:
-        candidates = sorted(scored, key=lambda x: x[1], reverse=True)[:3]
-    candidates.sort(key=lambda x: x[2], reverse=True)
-    return candidates[0][0]
-
-
-def _resolve_colors(cli_colors):
+def _resolve_palette(cli_colors):
     if cli_colors and len(cli_colors) >= 3:
-        colors = [c if c.startswith("#") else f"#{c}" for c in cli_colors]
-        return colors
-
+        return _parse_cli_colors(cli_colors)
+    if os.path.exists(PALETTE_JSON):
+        with open(PALETTE_JSON) as f:
+            data = json.load(f)
+        if all(k in data for k in ("bg", "surface", "fg", "accent")):
+            return data
     if os.path.exists(PALETTE_FILE):
         with open(PALETTE_FILE) as f:
             colors = [line.strip() for line in f if line.strip()]
+        if len(colors) >= 6:
+            return dict(zip(ROLES[:len(colors)], colors))
         if len(colors) >= 3:
-            return colors
+            keys = ROLES[:len(colors)]
+            return dict(zip(keys, colors))
 
     print("Error: Need at least 3 colors. Run 'paletteflow extract' first.", file=sys.stderr)
     sys.exit(1)
+
+
+def _parse_cli_colors(colors):
+    colors = [c if c.startswith("#") else f"#{c}" for c in colors]
+    keys = ROLES[:len(colors)]
+    return dict(zip(keys, colors))
 
 
 def _base_css_path(mode):
     return YARU_DARK_BASE if mode == "dark" else YARU_BASE
 
 
-def _build_bg_map(css, palette, accent_color):
-    bg_colors = re.findall(r"(?<=background-color:)\s*#[0-9A-Fa-f]{6}", css)
-    bg_colors = [c.strip() for c in bg_colors]
-    if not bg_colors:
-        return {}
-
-    freq = Counter(bg_colors)
-    ranked_bg = sorted(freq.keys(), key=lambda c: freq[c], reverse=True)
-
-    bg_palette = [c for c in palette if c != accent_color]
-    bg_palette.sort(key=get_brightness)
-
-    top_bg = sorted(ranked_bg[:len(bg_palette)], key=get_brightness)
-
-    return dict(zip(top_bg, bg_palette))
+def _classify_property(prop):
+    prop = prop.strip().lower()
+    if prop.startswith("background") or prop == "bg":
+        return "bg"
+    if prop == "color" and not prop.startswith("background"):
+        return "fg"
+    if "border" in prop:
+        return "border"
+    if "selection" in prop:
+        return "selection"
+    if prop in ("caret-color", "outline-color"):
+        return "fg"
+    return "other"
 
 
-def _generate_css(palette, accent_color, fg_color, mode):
+def _is_interactive_context(css, pos):
+    ctx_start = max(0, pos - 120)
+    ctx = css[ctx_start:pos]
+    keywords = [":hover", ":active", ":checked", ":focus", ":insensitive",
+                "selected", "highlighted", "activatable"]
+    return any(kw in ctx for kw in keywords)
+
+
+def _generate_css(palette, mode):
     src = _base_css_path(mode)
     if not os.path.exists(src):
         print(f"Error: Theme CSS not found at {src}", file=sys.stderr)
@@ -85,11 +93,104 @@ def _generate_css(palette, accent_color, fg_color, mode):
     with open(src) as f:
         css = f.read()
 
-    for yaru_color, pal_color in _build_bg_map(css, palette, accent_color).items():
-        css = css.replace(yaru_color, pal_color)
+    # Normalize all hex colors to uppercase for consistent matching
+    css = re.sub(r"#[0-9A-Fa-f]{6}", lambda m: m.group(0).upper(), css)
 
-    css = css.replace("-st-accent-color", accent_color)
-    css = css.replace("-st-accent-fg-color", fg_color)
+    bg = palette.get("bg", "#2E2E2E")
+    surface = palette.get("surface", "#3C3C3C")
+    fg = palette.get("fg", "#FFFFFF")
+    accent = palette.get("accent", "#4A90D9")
+    primary = palette.get("primary", accent)
+    secondary = palette.get("secondary", blend(accent, surface, 0.5))
+
+    fg_subtle = ensure_contrast_multi(accent, [bg, surface], 3.0)
+    accent_2 = secondary
+
+    bg_is_dark = is_dark(bg)
+    applied_accent = ensure_contrast(accent, bg, 3.0) if bg_is_dark else accent
+
+    # Step 1: Build replacement map based on property context
+    replacements = {}
+    already_replaced = set()
+
+    for match in CSS_COLOR_RE.finditer(css):
+        prop, color_val = match.group(1), match.group(2)
+        color_upper = color_val.upper()
+        if color_upper in already_replaced:
+            continue
+
+        prop_type = _classify_property(prop)
+        br = get_brightness(color_val)
+        pos = match.start()
+        is_interactive = _is_interactive_context(css, pos)
+
+        if is_interactive:
+            if prop_type in ("bg", "border"):
+                new_color = applied_accent
+            elif prop_type == "fg":
+                new_color = fg
+            else:
+                new_color = applied_accent
+        elif prop_type == "bg":
+            if br < 50:
+                new_color = bg
+            else:
+                new_color = surface
+        elif prop_type == "fg":
+            new_color = fg
+        elif prop_type == "border":
+            if br < 80:
+                new_color = surface
+            else:
+                new_color = fg_subtle
+        elif prop_type == "selection":
+            new_color = applied_accent
+        else:
+            if br < 50:
+                new_color = bg
+            elif br < 110:
+                new_color = surface
+            elif br >= 200:
+                new_color = fg
+            else:
+                new_color = fg_subtle
+
+        if color_upper not in replacements:
+            replacements[color_upper] = new_color
+            already_replaced.add(color_upper)
+
+    # Step 2: Catch remaining colors not matched by property regex
+    all_colors = set(re.findall(r"#[0-9A-Fa-f]{6}", css))
+    for c in all_colors:
+        cu = c.upper()
+        if cu not in replacements:
+            br = get_brightness(c)
+            if br < 50:
+                replacements[cu] = bg
+            elif br < 110:
+                replacements[cu] = surface
+            elif br >= 200:
+                replacements[cu] = fg
+            else:
+                replacements[cu] = fg_subtle
+
+    # Step 3: Force all text-color properties to fg BEFORE general hex replacement
+    css = re.sub(
+        r"((?<![a-zA-Z-])color:\s*)#[0-9A-Fa-f]{6}",
+        lambda m: f"{m.group(1)}{fg}",
+        css,
+    )
+
+    # Step 4: Apply background/border replacements to remaining hex values
+    def _replace_color(match):
+        c = match.group(0).upper()
+        return replacements.get(c, match.group(0))
+
+    css = re.sub(r"#[0-9A-Fa-f]{6}", _replace_color, css)
+
+    # Step 5: Apply accent-specific replacements
+    css = css.replace("-st-accent-color", applied_accent)
+    css = css.replace("-st-accent-fg-color", fg)
 
     return css
 
@@ -137,11 +238,10 @@ def _reload_theme():
 
 
 def run(colors=None, mode="dark"):
-    extracted = _resolve_colors(colors)
-    accent = _pick_accent(extracted)
-    fg = get_contrasting_text_color(accent)
+    palette = _resolve_palette(colors)
+    accent = palette.get("accent", "#4A90D9")
 
-    new_css = _generate_css(extracted, accent, fg, mode)
+    new_css = _generate_css(palette, mode)
 
     if os.path.exists(CSS_PATH):
         with open(CSS_PATH) as f:
@@ -157,7 +257,8 @@ def run(colors=None, mode="dark"):
 
     mode_label = "dark" if mode == "dark" else "light"
     print(f"Updated GNOME Shell theme ({mode_label} mode)")
-    print(f"  Accent: {accent}")
+    print(f"  Background: {palette.get('bg', '?')}, Surface: {palette.get('surface', '?')}")
+    print(f"  Foreground: {palette.get('fg', '?')}, Accent: {accent}")
 
 
 def main():

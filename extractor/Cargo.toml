@@ -8,5 +8,4 @@ name = "paletteflow-extract"
 path = "src/main.rs"
 
 [dependencies]
-color-thief = "0.2"
 image = "0.25"

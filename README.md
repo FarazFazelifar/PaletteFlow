@@ -1,179 +1,141 @@
+<div align="center">
+
 # PaletteFlow
 
-> Extract colors from your wallpaper and watch them flow across your entire Linux desktop.
+Your wallpaper's colors, flowing across your entire desktop.
 
-PaletteFlow reads your current GNOME wallpaper (or any image), extracts a color palette, and applies it to:
+<br>
 
-- **GNOME Shell** — system accent color and surface backgrounds
-- **Starship** — prompt color palette
-- **Ghostty** — terminal background, foreground, cursor, and ANSI palette
-- **Fastfetch** — system info ANSI colors
-- **Cava** — audio visualizer gradient
+<table>
+  <tr>
+    <td><img src="screenshot-1.png" width="400" alt="Starship prompt with wallpaper-derived colors"></td>
+    <td><img src="screenshot-2.png" width="400" alt="GNOME Shell with themed accents and surfaces"></td>
+  </tr>
+  <tr>
+    <td><img src="screenshot-3.png" width="400" alt="Ghostty terminal with extracted palette"></td>
+    <td><img src="screenshot-4.png" width="400" alt="Fastfetch and Cava showing palette colors"></td>
+  </tr>
+</table>
 
-## Installation
+</div>
+
+Extract colors from your wallpaper and apply them across your tools — the prompt, the terminal, the shell, the system info, even the audio visualizer. Everything picks up from the same palette automatically.
+
+---
+
+### What it touches
+
+- **GNOME Shell** — accent color, surface backgrounds, text
+- **[Starship](https://starship.rs)** — prompt palette
+- **[Ghostty](https://ghostty.org)** — terminal background, foreground, cursor, selection, ANSI 1–15
+- **[Fastfetch](https://github.com/fastfetch-cli/fastfetch)** — display key color, logo palette
+- **[Cava](https://github.com/karlstav/cava)** — audio visualizer gradient
+
+---
+
+## Getting started
+
+### Install
 
 ```bash
 git clone https://github.com/FarazFazelifar/paletteflow.git
 cd paletteflow
-
-# Create a virtual environment (optional but recommended)
-python3 -m venv .venv
-source .venv/bin/activate
-
-# Install Python package
+python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
+```
 
-# (Optional) Build the Rust color extractor for ~40x faster extraction
+For faster extraction (≈53 ms instead of ≈2 s), build the Rust extractor:
+
+```bash
 ./build_extractor.sh
 ```
 
-### Dependencies
+### What you need
 
-- **User Themes** GNOME extension — required for GNOME Shell theming.  
-  [Install from extensions.gnome.org](https://extensions.gnome.org/extension/19/user-themes/)  
+| Dependency | Why |
+|---|---|
+| [User Themes](https://extensions.gnome.org/extension/19/user-themes/) GNOME extension | Required for GNOME Shell theming |
+| Python 3.10+ | Runtime |
+| [tomlkit](https://github.com/sdispater/tomlkit) | TOML edit without breaking comments |
+| Rust toolchain | Optional — ~40× faster extraction |
+
+---
 
 ## Usage
 
-### One-shot: apply from current wallpaper
+### One command
 
 ```bash
 paletteflow apply
 ```
 
-Extract 6 colors by default. Use `-n` for more (up to 12):
-
-```bash
-paletteflow apply -n 10     # 10-color palette
-```
+Pulls your current GNOME wallpaper, extracts 6 colors, and updates every target. Add `-n 10` for a richer palette.
 
 ### Step by step
 
 ```bash
-paletteflow extract          # extract 6 colors (or: -n 12)
-paletteflow starship         # update starship palette
-paletteflow fastfetch        # update fastfetch colors
-paletteflow ghostty          # update Ghostty terminal
-paletteflow cava             # update Cava gradient
-paletteflow gnome-shell      # update GNOME Shell accent + backgrounds
+paletteflow extract          # read wallpaper → cache palette
+paletteflow starship         # patch starship prompt colors
+paletteflow gnome-shell      # set accent + surface colors
+paletteflow ghostty          # terminal colors + ANSI palette
+paletteflow fastfetch        # system info colors
+paletteflow cava             # audio visualizer gradient
 ```
 
-Pass colors directly (skips cache):
+Pass colors directly if you want to skip the cache:
 
 ```bash
 paletteflow starship #1A1A2E #16213E #0F3460 #E94560 #533483 #F5F5F5
 ```
 
-### Theme mode
+### Watch for changes
 
-GNOME Shell defaults to dark mode. Switch with `--mode`:
-
-```bash
-paletteflow gnome-shell --mode light
-```
-
-### Auto-watch wallpaper changes
-
-Install a background systemd service that re-applies whenever the wallpaper changes:
+Install a systemd user service that re-applies whenever the wallpaper changes:
 
 ```bash
 paletteflow service install
 ```
 
-Manage the service:
+It listens for GNOME's D-Bus signal directly via `gsettings monitor` — zero polling, ≤1 MB RSS idle.
 
 ```bash
-paletteflow service status   # check if running
-paletteflow service logs     # tail live logs
-paletteflow service stop     # stop watching
-paletteflow service start    # resume watching
+paletteflow service status   # is it running?
+paletteflow service logs     # tail live output
 paletteflow service uninstall
 ```
 
-Run in the foreground for testing:
+### GNOME Shell theme mode
 
 ```bash
-paletteflow-watch
+paletteflow gnome-shell --mode light
 ```
 
-The service uses zero-polling — it listens for GNOME's D-Bus signal directly via `gsettings monitor`. The watcher is a 26-line bash script with no Python overhead (~1 MB RSS idle).
+Defaults to dark.
 
-## Uninstallation
-
-### Remove the systemd service
-
-```bash
-paletteflow service uninstall
-```
-
-### Remove generated files
-
-```bash
-rm -rf ~/.local/share/themes/paletteflow      # GNOME Shell theme
-rm -f ~/.cache/paletteflow.txt                # extracted palette cache
-```
-
-### Uninstall the package
-
-```bash
-pip uninstall paletteflow -y
-```
-
-Or if you used a virtual environment, just delete it:
-
-```bash
-rm -rf .venv
-```
-
-### Restore original GNOME Shell theme
-
-Set the User Themes extension back to the default:
-
-```bash
-dconf write /org/gnome/shell/extensions/user-theme/name "''"
-```
+---
 
 ## How it works
 
-1. **`extract`** uses the Rust `paletteflow-extract` binary (or Python `ColorThief` as fallback) to pull a configurable 4–12 color palette from your wallpaper. The Rust version downscales images to 300px and runs median-cut quantization in native code — ~53 ms vs ~2 s for high-res wallpapers. The palette is saved to `~/.cache/paletteflow.txt`.
+1. **Extract** — The Rust binary (or Python `colorthief` fallback) runs K-Means in LAB space (K=10), snaps centroids to real pixels, filters near-duplicates, and returns 6–10 diverse colors sorted by dominance.
 
-2. **`gnome-shell`** copies Yaru's full theme CSS and replaces all 200+ `-st-accent-color` references with the best accent candidate from your palette (picked by saturation). The remaining palette colors replace Yaru's surface background colors, matched by brightness. Theme changes apply live via the User Themes extension.
+2. **Map** — Colors are assigned to six roles: `bg` (most dominant), `surface` (second-most), `primary` / `secondary` (highest saturation), `accent` (absolute highest saturation), and `fg` (pure black or white).
 
-3. **`starship`** reads from cache and patches `[palettes.auto_theme]` in your Starship config. The terminal background color is excluded to prevent prompt sections from visually merging with the terminal.
+3. **Apply** — Each target reads the palette from `~/.cache/paletteflow.json`, applies contrast checks (≥3:1 WCAG), and writes its config atomically via `tempfile.mkstemp` + `os.rename`. No config is ever left half-written.
 
-4. **`ghostty`** sets the terminal background to the dominant palette color, then applies contrast-checked ANSI colors. Text colors invert for light/dark backgrounds, and palette colors are shifted to ensure readability.
+4. **Contrast guarantee** — Every text/background pair across every target meets at least 3:1. Hardcoded user values (like `#000000` in starship format strings) are included as contrast constraints. When a wallpaper's colors make 3:1 impossible, the algorithm finds the best trade-off.
 
-5. **`fastfetch`** updates its JSONC config for display and logo ANSI colors. Handles JSONC comments and literal control characters.
+---
 
-6. **`cava`** updates the 6-color gradient in `~/.config/cava/config`.
+## Uninstall
 
-## Supported targets
+```bash
+paletteflow service uninstall
+rm -rf ~/.local/share/themes/paletteflow
+rm -f ~/.cache/paletteflow.txt ~/.cache/paletteflow.json
+dconf reset /org/gnome/shell/extensions/user-theme/name
+pip uninstall paletteflow -y
+```
 
-| Target | Config file | What gets updated |
-|--------|-------------|-------------------|
-| GNOME Shell | `~/.local/share/themes/paletteflow/gnome-shell/gnome-shell.css` | Accent color + surface backgrounds |
-| Starship | `~/.config/starship.toml` | `[palettes.auto_theme]` (6 colors) |
-| Fastfetch | `~/.config/fastfetch/config.jsonc` | Display color + logo ANSI colors |
-| Ghostty | `~/.config/ghostty/config` | Background, foreground, cursor, selection, palette[1-6] |
-| Cava | `~/.config/cava/config` | 6-color gradient under `[color]` |
-
-## Requirements
-
-- Linux with GNOME (or manually provide an image path)
-- Python 3.10+
-- [colorthief](https://github.com/fengsp/color-thief-py) — Python color extraction (fallback)
-- [tomlkit](https://github.com/sdispater/tomlkit) — TOML editing with comment preservation
-- [User Themes](https://extensions.gnome.org/extension/19/user-themes/) GNOME extension — for shell theming
-- Rust toolchain (optional, for ~40x faster extraction via `./build_extractor.sh`)
-
-## Publishing plans
-
-PaletteFlow is planned to be published as:
-
-- **GNOME Shell extension** — a one-click install from [extensions.gnome.org](https://extensions.gnome.org) with a settings panel for color count, theme mode, and target toggles.
-- **PyPI package** — `pip install paletteflow` for the CLI tools, no cloning needed.
-
-Both would share the same backend — the extension would call the Python CLI under the hood.
-
-## License
+---
 
 MIT

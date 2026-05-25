@@ -1,36 +1,59 @@
 import os
 import re
 import sys
-import argparse
+import json
+
+from paletteflow.color_utils import (
+    get_brightness,
+    is_dark,
+    ensure_contrast,
+    blend,
+    ROLES,
+)
 
 
-def _resolve_colors(cli_colors):
-    colors = [None] * 6
-    cache_file = os.path.expanduser("~/.cache/paletteflow.txt")
+PALETTE_FILE = os.path.expanduser("~/.cache/paletteflow.txt")
+PALETTE_JSON = os.path.expanduser("~/.cache/paletteflow.json")
 
+
+def _resolve_palette(cli_colors):
     if cli_colors and len(cli_colors) >= 3:
-        for i in range(min(6, len(cli_colors))):
-            colors[i] = cli_colors[i]
-    elif os.path.exists(cache_file):
-        with open(cache_file) as f:
-            extracted = [line.strip() for line in f if line.strip()]
-            for i in range(min(6, len(extracted))):
-                colors[i] = extracted[i]
-
-    if not all(colors[:3]):
-        print("Error: Not enough colors.", file=sys.stderr)
-        sys.exit(1)
-
-    for i in range(6):
-        if not colors[i]:
-            colors[i] = colors[0]
-        if not colors[i].startswith("#"):
-            colors[i] = f"#{colors[i]}"
-    return colors
+        return cli_colors[:6]
+    if os.path.exists(PALETTE_JSON):
+        with open(PALETTE_JSON) as f:
+            data = json.load(f)
+        keys = ROLES
+        colors = [data.get(k) for k in keys if data.get(k)]
+        if len(colors) >= 3:
+            return colors
+    if os.path.exists(PALETTE_FILE):
+        with open(PALETTE_FILE) as f:
+            colors = [line.strip() for line in f if line.strip()]
+            if len(colors) >= 3:
+                return colors[:6]
+    print("Error: Not enough colors.", file=sys.stderr)
+    sys.exit(1)
 
 
 def run(colors=None):
-    primary, secondary, accent, tertiary, quaternary, quinary = _resolve_colors(colors)
+    palette = _resolve_palette(colors)
+
+    bg = palette[0]
+    surface = palette[1]
+    primary = palette[2]
+    secondary = palette[3]
+    accent = palette[4]
+    fg = palette[5]
+
+    # Cava gradient: dark to bright
+    gradient = [
+        surface,
+        blend(secondary, bg, 0.5),
+        blend(primary, bg, 0.3),
+        primary,
+        accent,
+        fg,
+    ]
 
     config_path = os.path.expanduser("~/.config/cava/config")
     os.makedirs(os.path.dirname(config_path), exist_ok=True)
@@ -42,12 +65,12 @@ def run(colors=None):
 
     settings = {
         "gradient": "1",
-        "gradient_color_1": secondary,
-        "gradient_color_2": accent,
-        "gradient_color_3": tertiary,
-        "gradient_color_4": quaternary,
-        "gradient_color_5": quinary,
-        "gradient_color_6": secondary,
+        "gradient_color_1": gradient[0],
+        "gradient_color_2": gradient[1],
+        "gradient_color_3": gradient[2],
+        "gradient_color_4": gradient[3],
+        "gradient_color_5": gradient[4],
+        "gradient_color_6": gradient[5],
     }
 
     if not any("[color]" in line for line in lines):
@@ -76,9 +99,11 @@ def run(colors=None):
         f.writelines(lines)
 
     print("Updated Cava audio visualizer gradient")
+    print(f"  Gradient: {' → '.join(gradient)}")
 
 
 def main():
+    import argparse
     parser = argparse.ArgumentParser(
         description="Update Cava gradient colors from extracted palette."
     )

@@ -8,4 +8,6 @@ paletteflow.egg-info/
 dist/
 build/
 ROADMAP.md
+GUIDE.md
+.opencode/
 extractor/target/

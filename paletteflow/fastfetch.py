@@ -1,8 +1,33 @@
 import json
 import os
-import re
 import sys
-import argparse
+import tempfile
+
+from paletteflow.color_utils import (
+    blend,
+    get_brightness,
+    ROLES,
+)
+
+
+PALETTE_FILE = os.path.expanduser("~/.cache/paletteflow.txt")
+PALETTE_JSON = os.path.expanduser("~/.cache/paletteflow.json")
+
+
+def _write_atomic(path, content):
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or ".",
+                                prefix=".tmp-", suffix=".json")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(content)
+        os.rename(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def hex_to_ansi(hex_color):
@@ -35,21 +60,40 @@ def strip_jsonc_comments(text):
     return "".join(result)
 
 
-def _resolve_colors(cli_colors):
+def _resolve_palette(cli_colors):
     if cli_colors and len(cli_colors) >= 3:
-        return cli_colors[:3]
-    cache_file = os.path.expanduser("~/.cache/paletteflow.txt")
-    if os.path.exists(cache_file):
-        with open(cache_file) as f:
+        colors = cli_colors[:6]
+    elif os.path.exists(PALETTE_JSON):
+        with open(PALETTE_JSON) as f:
+            data = json.load(f)
+        keys = ROLES
+        colors = [data.get(k) for k in keys if data.get(k)]
+        if len(colors) < 3:
+            colors = None
+    else:
+        colors = None
+
+    if not colors and os.path.exists(PALETTE_FILE):
+        with open(PALETTE_FILE) as f:
             colors = [line.strip() for line in f if line.strip()]
-            if len(colors) >= 3:
-                return colors[:3]
-    print("Error: Could not find 3 colors.", file=sys.stderr)
-    sys.exit(1)
+        colors = colors[:6]
+
+    if not colors or len(colors) < 3:
+        print("Error: Could not find 3 colors.", file=sys.stderr)
+        sys.exit(1)
+
+    return colors
 
 
 def run(colors=None):
-    primary, secondary, accent = _resolve_colors(colors)
+    palette = _resolve_palette(colors)
+
+    bg = palette[0]
+    surface = palette[1] if len(palette) > 1 else blend(bg, "#FFFFFF", 0.15)
+    primary = palette[2] if len(palette) > 2 else bg
+    secondary = palette[3] if len(palette) > 3 else primary
+    accent = palette[4] if len(palette) > 4 else primary
+    fg = palette[5] if len(palette) > 5 else "#FFFFFF"
 
     config_dir = os.path.expanduser("~/.config/fastfetch")
     config_path = os.path.join(config_dir, "config.jsonc")
@@ -67,30 +111,46 @@ def run(colors=None):
 
     config = json.loads(raw, strict=False)
 
+    # Display colors
     if "display" not in config:
         config["display"] = {}
-    config["display"]["color"] = hex_to_ansi(accent)
+    # Use the lightest wallpaper colour for text so it's visible on any terminal bg
+    lightest = max((bg, surface, primary, secondary, accent), key=get_brightness)
+    config["display"]["color"] = hex_to_ansi(lightest)
+    config["display"]["separator"] = " : "
+    config["display"]["key"] = {"color": hex_to_ansi(accent)}
 
-    if "logo" not in config:
-        config["logo"] = {}
-    if "color" not in config["logo"]:
-        config["logo"]["color"] = {}
-    config["logo"]["color"]["1"] = hex_to_ansi(secondary)
-    config["logo"]["color"]["2"] = hex_to_ansi(accent)
+    # Logo colors — use palette
+    config["logo"] = config.get("logo", {})
+    config["logo"]["color"] = config["logo"].get("color", {})
 
-    with open(config_path, "w") as f:
-        json.dump(config, f, indent=2)
+    logo_colors = {
+        "1": accent,
+        "2": primary,
+        "3": secondary,
+        "4": surface,
+        "5": lightest,
+        "6": bg,
+    }
 
-    print("Updated fastfetch config")
+    for key, val in logo_colors.items():
+        config["logo"]["color"][key] = hex_to_ansi(val)
+
+    _write_atomic(config_path, json.dumps(config, indent=2) + "\n")
+
+    print("Updated fastfetch config with rich palette")
+    print(f"  Text: {lightest}")
+    print(f"  Logo colors: {len(logo_colors)} colors applied")
 
 
 def main():
+    import argparse
     parser = argparse.ArgumentParser(
         description="Update fastfetch ANSI colors from extracted palette."
     )
     parser.add_argument(
         "colors", nargs="*", default=None,
-        help="Three hex colors (primary secondary accent). Reads from cache if omitted.",
+        help="Hex colors (primary secondary accent). Reads from cache if omitted.",
     )
     args = parser.parse_args()
     run(args.colors)
