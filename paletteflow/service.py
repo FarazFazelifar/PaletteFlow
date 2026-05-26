@@ -27,6 +27,7 @@ Description=PaletteFlow — auto-apply wallpaper colors to your desktop
 
 [Service]
 Type=simple
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/bin/bash {script} {paletteflow} apply
 Restart=on-failure
 RestartSec=5

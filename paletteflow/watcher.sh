@@ -13,6 +13,9 @@ get_wallpaper() {
 
 last=$(get_wallpaper)
 
+# Apply immediately on startup (ensures theme is applied after reboot)
+"$@"
+
 while IFS= read -r line; do
     case "$line" in
         picture-uri*)

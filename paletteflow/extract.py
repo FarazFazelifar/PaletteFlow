@@ -5,6 +5,11 @@ import subprocess
 import urllib.parse
 import json
 
+try:
+    from colorthief import ColorThief
+except ImportError:
+    ColorThief = None
+
 from paletteflow.color_utils import (
     get_saturation,
     contrast_ratio,
@@ -49,33 +54,40 @@ def _find_extractor():
 
 
 def _extract(image, num_colors):
-    """Extract colours from image using the Rust extractor."""
-    exe = _find_extractor()
-    if not exe:
-        print("Error: paletteflow-extract binary not found.", file=sys.stderr)
-        sys.exit(1)
+    """Extract colours from image — tries Rust extractor first, falls back to ColorThief."""
 
-    # Rust supports 4–12; clamp to that range
-    n = max(4, min(num_colors, RUST_MAX))
+    exe = _find_extractor()
+    if exe:
+        # Rust supports 4–12; clamp to that range
+        n = max(4, min(num_colors, RUST_MAX))
+        try:
+            result = subprocess.run(
+                [exe, image, str(n)],
+                capture_output=True, text=True, check=True, timeout=30,
+            )
+            colors = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+            if colors:
+                return colors
+        except (subprocess.CalledProcessError, FileNotFoundError, TimeoutError):
+            pass
+
+    print("Rust extractor not available. Falling back to Python ColorThief...")
+    if ColorThief is None:
+        print("Error: colorthief library not installed. Install it with: pip install colorthief",
+              file=sys.stderr)
+        sys.exit(1)
 
     try:
-        result = subprocess.run(
-            [exe, image, str(n)],
-            capture_output=True, text=True, check=True, timeout=30,
-        )
-        colors = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        ct = ColorThief(image)
+        # get_palette returns dominance-sorted (R,G,B) tuples
+        raw = ct.get_palette(color_count=num_colors, quality=1)
+        colors = [f"#{r:02x}{g:02x}{b:02x}" for r, g, b in raw]
         if not colors:
-            print(f"Error: extractor returned no colours for {image}", file=sys.stderr)
+            print(f"Error: ColorThief returned no colours for {image}", file=sys.stderr)
             sys.exit(1)
         return colors
-    except subprocess.CalledProcessError as e:
-        print(f"Error: extractor failed with exit code {e.returncode}", file=sys.stderr)
-        sys.exit(1)
-    except FileNotFoundError:
-        print(f"Error: extractor binary not found at {exe}", file=sys.stderr)
-        sys.exit(1)
-    except TimeoutError:
-        print("Error: extractor timed out after 30 seconds", file=sys.stderr)
+    except Exception as e:
+        print(f"Error: ColorThief extraction failed: {e}", file=sys.stderr)
         sys.exit(1)
 
 
